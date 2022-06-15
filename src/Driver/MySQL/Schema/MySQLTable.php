@@ -98,6 +98,7 @@ class MySQLTable extends AbstractTable
 
         $result = [];
         foreach ($this->driver->query($query) as $schema) {
+            //
             $result[] = MySQLColumn::createInstance(
                 $this->getFullName(),
                 $schema,

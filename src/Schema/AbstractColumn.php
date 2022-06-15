@@ -562,7 +562,7 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
         return $this;
     }
 
-    public function sqlStatement(DriverInterface $driver): string
+    protected function sqlStatementParts(DriverInterface $driver): array
     {
         $statement = [$driver->identifier($this->name), $this->type];
 
@@ -583,7 +583,12 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
             $statement[] = "DEFAULT {$this->quoteDefault($driver)}";
         }
 
-        return implode(' ', $statement);
+        return $statement;
+    }
+
+    public function sqlStatement(DriverInterface $driver): string
+    {
+        return implode(' ', $this->sqlStatementParts($driver));
     }
 
     public function compare(self $initial): bool

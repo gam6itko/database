@@ -28,6 +28,8 @@ class MySQLColumn extends AbstractColumn
      */
     public const DATETIME_NOW = 'CURRENT_TIMESTAMP';
 
+    protected const INTEGER_TYPES = ['tinyint', 'smallint', 'mediumint', 'int', 'bigint'];
+
     protected array $mapping = [
         //Primary sequences
         'primary'     => [
@@ -131,6 +133,16 @@ class MySQLColumn extends AbstractColumn
     protected bool $autoIncrement = false;
 
     /**
+     * For integer types only.
+     */
+    protected bool $unsigned = false;
+
+    /**
+     * For integer types only.
+     */
+    protected bool $zerofill = false;
+
+    /**
      * @psalm-return non-empty-string
      */
     public function sqlStatement(DriverInterface $driver): string
@@ -142,14 +154,24 @@ class MySQLColumn extends AbstractColumn
             $this->defaultValue = null;
         }
 
-        $statement = parent::sqlStatement($driver);
+        $statementParts = parent::sqlStatementParts($driver);
+
+        if (in_array($this->type, self::INTEGER_TYPES)) {
+            $attr = array_filter([
+                $this->unsigned ? 'unsigned' : null,
+                $this->zerofill ? 'zerofill' : null,
+            ]);
+            if ($attr) {
+                array_splice($statementParts, 3, 0, $attr);
+            }
+        }
 
         $this->defaultValue = $defaultValue;
         if ($this->autoIncrement) {
-            return "{$statement} AUTO_INCREMENT";
+            $statementParts[] = 'AUTO_INCREMENT';
         }
 
-        return $statement;
+        return implode(' ', $statementParts);
     }
 
     /**
@@ -166,7 +188,7 @@ class MySQLColumn extends AbstractColumn
 
         if (
             !preg_match(
-                '/^(?P<type>[a-z]+)(?:\((?P<options>[^\)]+)\))?/',
+                '/^(?P<type>[a-z]+)(?:\((?P<options>[^\)]+)\))?(?: (?P<attr>[a-z ]+))?/',
                 $column->type,
                 $matches
             )
@@ -186,6 +208,19 @@ class MySQLColumn extends AbstractColumn
                 $column->scale = (int)$options[1];
             } else {
                 $column->size = (int)$options[0];
+            }
+        }
+
+        if (!empty($matches['attr'])) {
+            if (in_array($column->type, self::INTEGER_TYPES)) {
+                $intOptions = array_map('trim', explode(' ', $matches['attr']));
+                if (in_array('unsigned', $intOptions)) {
+                    $column->unsigned = true;
+                }
+                if (in_array('zerofill', $intOptions)) {
+                    $column->zerofill = true;
+                }
+                unset($intOptions);
             }
         }
 
@@ -233,6 +268,25 @@ class MySQLColumn extends AbstractColumn
         return $column;
     }
 
+    public function compare(AbstractColumn $initial): bool
+    {
+        assert($initial instanceof self);
+        if (!parent::compare($initial)) {
+            return false;
+        }
+
+        if (in_array($this->type, self::INTEGER_TYPES)) {
+            $attr = ['unsigned', 'zerofill'];
+            foreach ($attr as $a) {
+                if ($this->{$a} !== $initial->{$a}) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Ensure that datetime fields are correctly formatted.
      *
@@ -249,5 +303,45 @@ class MySQLColumn extends AbstractColumn
         }
 
         return parent::formatDatetime($type, $value);
+    }
+
+    public function isUnsigned(): bool
+    {
+        return $this->unsigned;
+    }
+
+    public function isZerofill(): bool
+    {
+        return $this->zerofill;
+    }
+
+    public function tinyInteger(array $options = []): self
+    {
+        return $this->createInteger(__FUNCTION__, $options);
+    }
+
+    public function smallInteger(array $options = []): self
+    {
+        return $this->createInteger(__FUNCTION__, $options);
+    }
+
+    public function integer(array $options = []): self
+    {
+        return $this->createInteger(__FUNCTION__, $options);
+    }
+
+    public function bigInteger(array $options = []): self
+    {
+        return $this->createInteger(__FUNCTION__, $options);
+    }
+
+    private function createInteger(string $type, array $options = []): AbstractColumn
+    {
+        $attr = array_intersect_key($options, ['unsigned' => false, 'zerofill' => false]);
+        $column = $this->type($type);
+        foreach ($attr as $k => $v) {
+            $column->{$k} = $v;
+        }
+        return $column;
     }
 }
