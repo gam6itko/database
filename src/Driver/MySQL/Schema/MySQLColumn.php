@@ -147,7 +147,7 @@ class MySQLColumn extends AbstractColumn
         $statementParts = parent::sqlStatementParts($driver);
 
         if (in_array($this->type, self::ENGINE_INTEGER_TYPES)) {
-            $attr = array_intersect_key($this->attributes, ['unsigned' => false, 'zerofill' => false]);
+            $attr = array_filter(array_intersect_key($this->attributes, ['unsigned' => false, 'zerofill' => false]));
             if ($attr) {
                 array_splice($statementParts, 3, 0, array_keys($attr));
             }
