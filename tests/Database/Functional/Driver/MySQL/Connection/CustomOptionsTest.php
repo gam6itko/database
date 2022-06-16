@@ -19,17 +19,15 @@ class CustomOptionsTest extends CommonClass
     /**
      * @dataProvider dataUnsignedAndZerofillAttributes
      */
-    public function testUnsignedAndZerofillAttributes(string $type, string $columnName, array $attribute = [], array $expectedOptions = []): void
+    public function testUnsignedAndZerofillAttributes(string $type, string $columnName, array $attribute = [], array $expectedAttributes = []): void
     {
         $schema = $this->schema(uniqid("{$type}_{$columnName}"));
         $schema->primary('id');
-        $schema->{$type}($columnName, [], $attribute);
+        $schema->{$type}($columnName)->setAttributes($attribute);
         $schema->save();
 
         self::assertInstanceOf(MySQLColumn::class, $column = $this->fetchSchema($schema)->column($columnName));
-        foreach ($expectedOptions as $k => $v) {
-            self::assertSame($v, call_user_func([$column, "is".strtoupper($k)]));
-        }
+        self::assertEquals($expectedAttributes, $column->getAttributes());
     }
 
     public function dataUnsignedAndZerofillAttributes(): iterable

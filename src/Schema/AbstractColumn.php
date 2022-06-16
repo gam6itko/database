@@ -350,9 +350,15 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
         };
     }
 
-    public function setAttributes(array $attributes): void
+    public function setAttributes(array $attributes): self
     {
         $this->attributes = $attributes;
+        return $this;
+    }
+
+    public function getAttributes(): array
+    {
+        return $this->attributes;
     }
 
     /**
