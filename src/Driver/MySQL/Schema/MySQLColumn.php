@@ -132,12 +132,6 @@ class MySQLColumn extends AbstractColumn
      */
     protected bool $autoIncrement = false;
 
-    protected array $attributes = [
-        //integer
-        'unsigned' => false,
-        'zerofill' => false,
-    ];
-
     /**
      * @psalm-return non-empty-string
      */
