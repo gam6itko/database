@@ -149,7 +149,7 @@ class MySQLColumn extends AbstractColumn
         if (in_array($this->type, self::ENGINE_INTEGER_TYPES)) {
             $attr = array_intersect_key($this->attributes, ['unsigned' => false, 'zerofill' => false]);
             if ($attr) {
-                array_splice($statementParts, 3, 0, $attr);
+                array_splice($statementParts, 3, 0, array_keys($attr));
             }
         }
 
