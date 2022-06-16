@@ -132,15 +132,11 @@ class MySQLColumn extends AbstractColumn
      */
     protected bool $autoIncrement = false;
 
-    /**
-     * For integer types only.
-     */
-    protected bool $unsigned = false;
-
-    /**
-     * For integer types only.
-     */
-    protected bool $zerofill = false;
+    protected array $attributes = [
+        //integer
+        'unsigned' => false,
+        'zerofill' => false,
+    ];
 
     /**
      * @psalm-return non-empty-string
@@ -157,10 +153,7 @@ class MySQLColumn extends AbstractColumn
         $statementParts = parent::sqlStatementParts($driver);
 
         if (in_array($this->type, self::ENGINE_INTEGER_TYPES)) {
-            $attr = array_filter([
-                $this->unsigned ? 'unsigned' : null,
-                $this->zerofill ? 'zerofill' : null,
-            ]);
+            $attr = array_intersect_key($this->attributes, ['unsigned' => false, 'zerofill' => false]);
             if ($attr) {
                 array_splice($statementParts, 3, 0, $attr);
             }
@@ -204,23 +197,23 @@ class MySQLColumn extends AbstractColumn
             $options = explode(',', $matches['options']);
 
             if (count($options) > 1) {
-                $column->precision = (int)$options[0];
-                $column->scale = (int)$options[1];
+                $column->precision = (int) $options[0];
+                $column->scale = (int) $options[1];
             } else {
-                $column->size = (int)$options[0];
+                $column->size = (int) $options[0];
             }
         }
 
         if (!empty($matches['attr'])) {
             if (in_array($column->type, self::ENGINE_INTEGER_TYPES)) {
-                $intOptions = array_map('trim', explode(' ', $matches['attr']));
-                if (in_array('unsigned', $intOptions)) {
-                    $column->unsigned = true;
+                $intAttr = array_map('trim', explode(' ', $matches['attr']));
+                if (in_array('unsigned', $intAttr)) {
+                    $column->attributes['unsigned'] = true;
                 }
-                if (in_array('zerofill', $intOptions)) {
-                    $column->zerofill = true;
+                if (in_array('zerofill', $intAttr)) {
+                    $column->attributes['zerofill'] = true;
                 }
-                unset($intOptions);
+                unset($intAttr);
             }
         }
 
@@ -276,9 +269,9 @@ class MySQLColumn extends AbstractColumn
         }
 
         if (in_array($this->type, self::ENGINE_INTEGER_TYPES)) {
-            $attr = ['unsigned', 'zerofill'];
-            foreach ($attr as $a) {
-                if ($this->{$a} !== $initial->{$a}) {
+            $attr = ['unsigned' => false, 'zerofill' => false];
+            foreach ($attr as $a => $def) {
+                if (($this->attributes[$a] ?? $def) !== ($initial->attributes[$a] ?? $def)) {
                     return false;
                 }
             }
@@ -303,32 +296,5 @@ class MySQLColumn extends AbstractColumn
         }
 
         return parent::formatDatetime($type, $value);
-    }
-
-    public function isUnsigned(): bool
-    {
-        return $this->unsigned;
-    }
-
-    public function isZerofill(): bool
-    {
-        return $this->zerofill;
-    }
-
-    public function __call(string $type, array $arguments = []): AbstractColumn
-    {
-        $result = parent::__call($type, $arguments);
-        if (in_array($type, ['primary', 'bigPrimary', 'tinyInteger', 'smallInteger', 'integer', 'bigInteger'])) {
-            $this->fillAttributes($result, $arguments[1] ?? []);
-        }
-        return $result;
-    }
-
-    private function fillAttributes(AbstractColumn $column, array $attr = []): void
-    {
-        $attr = array_intersect_key($attr, ['unsigned' => false, 'zerofill' => false]);
-        foreach ($attr as $k => $v) {
-            $column->{$k} = $v;
-        }
     }
 }

@@ -205,6 +205,11 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
     protected array $enumValues = [];
 
     /**
+     * Database Engine specific attributes.
+     */
+    protected array $attributes = [];
+
+    /**
      * Abstract type aliases (for consistency).
      */
     private array $aliases = [
@@ -343,6 +348,11 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
                 ? false : (bool) $this->defaultValue,
             default => (string)$this->defaultValue
         };
+    }
+
+    public function setAttributes(array $attributes): void
+    {
+        $this->attributes = $attributes;
     }
 
     /**
