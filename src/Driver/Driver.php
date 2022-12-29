@@ -26,7 +26,6 @@ use Cycle\Database\StatementInterface;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
-use IntBackedEnum;
 use PDO;
 use PDOStatement;
 use Psr\Log\LoggerAwareInterface;
@@ -46,12 +45,13 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
      * @var non-empty-string (Typehint required for overriding behaviour)
      */
     protected const DATETIME = 'Y-m-d H:i:s';
+    protected const DATETIME_MICROSECONDS = 'Y-m-d H:i:s.u';
     protected ?\PDO $pdo = null;
     protected int $transactionLevel = 0;
     protected HandlerInterface $schemaHandler;
     protected BuilderInterface $queryBuilder;
 
-    /** @var PDOStatement[] */
+    /** @var PDOStatement[]|PDOStatementInterface[] */
     protected array $queryCache = [];
     private ?string $name = null;
 
@@ -323,6 +323,7 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
                     $this->disconnect();
 
                     try {
+                        $this->transactionLevel = 1;
                         return $this->getPDO()->beginTransaction();
                     } catch (Throwable $e) {
                         $this->transactionLevel = 0;
@@ -475,7 +476,7 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
     /**
      * @psalm-param non-empty-string $query
      */
-    protected function prepare(string $query): PDOStatement
+    protected function prepare(string $query): PDOStatement|PDOStatementInterface
     {
         if ($this->config->queryCache && isset($this->queryCache[$query])) {
             return $this->queryCache[$query];
@@ -492,8 +493,10 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
     /**
      * Bind parameters into statement.
      */
-    protected function bindParameters(PDOStatement $statement, iterable $parameters): PDOStatement
-    {
+    protected function bindParameters(
+        PDOStatement|PDOStatementInterface $statement,
+        iterable $parameters,
+    ): PDOStatement|PDOStatementInterface {
         $index = 0;
         foreach ($parameters as $name => $parameter) {
             if (\is_string($name)) {
@@ -511,7 +514,7 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
 
             /** @since PHP 8.1 */
             if ($parameter instanceof BackedEnum) {
-                $type = $parameter instanceof IntBackedEnum ? PDO::PARAM_INT : PDO::PARAM_STR;
+                $type = PDO::PARAM_STR;
                 $parameter = $parameter->value;
             }
 
@@ -535,12 +538,19 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
     protected function formatDatetime(DateTimeInterface $value): string
     {
         try {
-            $datetime = new DateTimeImmutable('now', $this->getTimezone());
+            $datetime = match (true) {
+                $value instanceof \DateTimeImmutable => $value->setTimezone($this->getTimezone()),
+                $value instanceof \DateTime => DateTimeImmutable::createFromMutable($value)
+                    ->setTimezone($this->getTimezone()),
+                default => (new DateTimeImmutable('now', $this->getTimezone()))->setTimestamp($value->getTimestamp())
+            };
         } catch (Throwable $e) {
             throw new DriverException($e->getMessage(), (int)$e->getCode(), $e);
         }
 
-        return $datetime->setTimestamp($value->getTimestamp())->format(static::DATETIME);
+        return $datetime->format(
+            $this->config->options['withDatetimeMicroseconds'] ? self::DATETIME_MICROSECONDS : self::DATETIME
+        );
     }
 
     /**
@@ -612,7 +622,7 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
     /**
      * Create instance of configured PDO class.
      */
-    protected function createPDO(): PDO
+    protected function createPDO(): PDO|PDOInterface
     {
         $connection = $this->config->connection;
 
@@ -635,7 +645,7 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
      *
      * @throws DriverException
      */
-    protected function getPDO(): PDO
+    protected function getPDO(): PDO|PDOInterface
     {
         if ($this->pdo === null) {
             $this->connect();
@@ -648,9 +658,8 @@ abstract class Driver implements DriverInterface, NamedInterface, LoggerAwareInt
      * Creating a context for logging
      *
      * @param float $queryStart Query start time
-     * @param PDOStatement|null $statement Statement
      */
-    protected function defineLoggerContext(float $queryStart, ?PDOStatement $statement): array
+    protected function defineLoggerContext(float $queryStart, PDOStatement|PDOStatementInterface|null $statement): array
     {
         $context = [
             'elapsed' => microtime(true) - $queryStart,

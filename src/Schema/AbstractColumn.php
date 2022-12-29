@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 namespace Cycle\Database\Schema;
 
+use Cycle\Database\Schema\Attribute\ColumnAttribute;
+use Cycle\Database\Schema\Traits\ColumnAttributesTrait;
 use DateTimeImmutable;
 use Cycle\Database\ColumnInterface;
 use Cycle\Database\Driver\DriverInterface;
@@ -39,7 +41,6 @@ use Cycle\Database\Schema\Traits\ElementTrait;
  * @method $this|AbstractColumn longText()
  * @method $this|AbstractColumn double()
  * @method $this|AbstractColumn float()
- * @method $this|AbstractColumn datetime()
  * @method $this|AbstractColumn date()
  * @method $this|AbstractColumn time()
  * @method $this|AbstractColumn timestamp()
@@ -51,6 +52,7 @@ use Cycle\Database\Schema\Traits\ElementTrait;
  */
 abstract class AbstractColumn implements ColumnInterface, ElementInterface
 {
+    use ColumnAttributesTrait;
     use ElementTrait;
 
     /**
@@ -61,13 +63,14 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
     /**
      * Value to be excluded from comparision.
      */
-    public const EXCLUDE_FROM_COMPARE = ['timezone', 'userType'];
+    public const EXCLUDE_FROM_COMPARE = ['timezone', 'userType', 'attributes'];
 
     /**
      * Normalization for time and dates.
      */
     public const DATE_FORMAT = 'Y-m-d';
     public const TIME_FORMAT = 'H:i:s';
+    public const DATETIME_PRECISION = 6;
 
     /**
      * Mapping between abstract type and internal database type with it's options. Multiple abstract
@@ -176,38 +179,38 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
     /**
      * Indicates that column can contain null values.
      */
+    #[ColumnAttribute]
     protected bool $nullable = true;
 
     /**
      * Default column value, may not be applied to some datatypes (for example to primary keys),
      * should follow type size and other options.
      */
+    #[ColumnAttribute]
     protected mixed $defaultValue = null;
 
     /**
      * Column type size, can have different meanings for different datatypes.
      */
+    #[ColumnAttribute]
     protected int $size = 0;
 
     /**
      * Precision of column, applied only for "decimal" type.
      */
+    #[ColumnAttribute(['decimal'])]
     protected int $precision = 0;
 
     /**
      * Scale of column, applied only for "decimal" type.
      */
+    #[ColumnAttribute(['decimal'])]
     protected int $scale = 0;
 
     /**
      * List of allowed enum values.
      */
     protected array $enumValues = [];
-
-    /**
-     * Database Engine specific attributes.
-     */
-    protected array $attributes = [];
 
     /**
      * Abstract type aliases (for consistency).
@@ -249,11 +252,21 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
     /**
      * Shortcut for AbstractColumn->type() method.
      *
-     * @psalm-param non-empty-string $type
+     * @psalm-param non-empty-string $name
      */
-    public function __call(string $type, array $arguments = []): self
+    public function __call(string $name, array $arguments = []): self
     {
-        return $this->type($type);
+        try {
+            $this->type($name);
+        } catch (SchemaException $e) {
+            if (\count($arguments) === 1 && \key($arguments) === 0) {
+                $this->fillAttributes([$name => $arguments[0]]);
+                return $this;
+            }
+            throw $e;
+        }
+        $this->fillAttributes($arguments);
+        return $this;
     }
 
     public function __toString(): string
@@ -294,6 +307,10 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
         if ($this->getAbstractType() === 'decimal') {
             $column['precision'] = $this->precision;
             $column['scale'] = $this->scale;
+        }
+
+        if ($this->attributes !== []) {
+            $column['attributes'] = $this->attributes;
         }
 
         return $column;
@@ -351,17 +368,6 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
         };
     }
 
-    public function setAttributes(array $attributes): self
-    {
-        $this->attributes = $attributes;
-        return $this;
-    }
-
-    public function getAttributes(): array
-    {
-        return $this->attributes;
-    }
-
     /**
      * Get every associated column constraint names.
      */
@@ -390,7 +396,7 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
     {
         $schemaType = $this->getAbstractType();
         foreach ($this->phpMapping as $phpType => $candidates) {
-            if (in_array($schemaType, $candidates, true)) {
+            if (\in_array($schemaType, $candidates, true)) {
                 return $phpType;
             }
         }
@@ -562,6 +568,19 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
         return $this;
     }
 
+    public function datetime(int $size = 0, mixed ...$attributes): self
+    {
+        $this->type('datetime');
+        $this->fillAttributes($attributes);
+
+        ($size < 0 || $size > static::DATETIME_PRECISION) && throw new SchemaException(
+            \sprintf('Invalid %s precision value.', $this->getAbstractType())
+        );
+        $this->size = $size;
+
+        return $this;
+    }
+
     /**
      * Set column type as decimal with specific precision and scale.
      *
@@ -579,7 +598,7 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
         return $this;
     }
 
-    protected function sqlStatementParts(DriverInterface $driver): array
+    public function sqlStatement(DriverInterface $driver): string
     {
         $statement = [$driver->identifier($this->name), $this->type];
 
@@ -600,12 +619,7 @@ abstract class AbstractColumn implements ColumnInterface, ElementInterface
             $statement[] = "DEFAULT {$this->quoteDefault($driver)}";
         }
 
-        return $statement;
-    }
-
-    public function sqlStatement(DriverInterface $driver): string
-    {
-        return implode(' ', $this->sqlStatementParts($driver));
+        return \implode(' ', $statement);
     }
 
     public function compare(self $initial): bool
